@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">finlink</string>
+    <string name="host_port_hint">host:port, z. B. 192.168.1.5:6801</string>
+    <string name="connect">Verbinden</string>
+    <string name="disconnect">Trennen</string>
+    <string name="status_disconnected">Nicht verbunden</string>
+    <string name="status_connecting">Verbinde…</string>
+    <string name="status_connected">Verbunden</string>
+    <string name="status_error">Fehler: %1$s</string>
+</resources>

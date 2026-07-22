@@ -42,12 +42,14 @@ PCM-Buffering, Input-Encoding) liegt in [`core/`](core/) als portable C-Library.
 bekommt darüber eine dünne Shell für Netzwerk, Rendering, Audio-Ausgabe und Input-Polling, da diese
 Teile je nach Zielplattform grundverschieden sind:
 
-| Verzeichnis | Zielplattform | Toolchain |
-|---|---|---|
-| [`clients/android/`](clients/android/) | Android-App | Android SDK/NDK |
-| [`clients/3ds/`](clients/3ds/) | Nintendo 3DS Homebrew | devkitARM / libctru |
-| [`clients/switch/`](clients/switch/) | Nintendo Switch Homebrew | devkitA64 / libnx |
-| [`clients/nds/`](clients/nds/) | Nintendo DS Homebrew | devkitARM / libnds — **zurückgestellt**, siehe [`docs/nds-feasibility.md`](docs/nds-feasibility.md) |
+| Verzeichnis | Zielplattform | Toolchain | Status |
+|---|---|---|---|
+| [`clients/android/`](clients/android/) | Android-App | Android SDK/NDK | rohe Demo (verbinden, Video, Audio, Input) |
+| [`clients/3ds/`](clients/3ds/) | Nintendo 3DS Homebrew | devkitARM / libctru | noch nicht begonnen |
+| [`clients/switch/`](clients/switch/) | Nintendo Switch Homebrew | devkitA64 / libnx | noch nicht begonnen |
+| [`clients/nds/`](clients/nds/) | Nintendo DS Homebrew | devkitARM / libnds | **zurückgestellt**, siehe [`docs/nds-feasibility.md`](docs/nds-feasibility.md) |
+
+Gemeinsames Logo für alle Clients: [`assets/logo/`](assets/logo/).
 
 Reihenfolge: Android, 3DS, Switch zuerst. Die NDS-WLAN-Hardware ist auf 1–2 Mbit/s begrenzt, was
 mit dem aktuellen Protokoll (Stereo-Audio allein braucht bereits ~1 Mbit/s) nicht ausreicht — Details

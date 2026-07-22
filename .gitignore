@@ -1,2 +1,10 @@
 .claude/
 build/
+
+# Android
+clients/android/.gradle/
+clients/android/.idea/
+clients/android/local.properties
+clients/android/*/build/
+clients/android/*/.cxx/
+clients/android/*.iml
