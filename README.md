@@ -25,18 +25,30 @@ C++-Server-Seite.
   beiden Servern ausgeliefert wird. Kein Build-Schritt, keine externen JS-Dependencies (bewusst so
   gewählt, um serverseitigen Aufwand minimal zu halten).
 
-### Wire-Protokoll (WebSocket, binär)
+### Wire-Protokoll
 
-| Richtung | Typ | Format |
-|---|---|---|
-| Server → Client | `1` (Video) | `[u8 type=1][u32le width][u32le height][raw-deflate RGB565-Pixel]` |
-| Server → Client | `3` (Audio) | `[u8 type=3][u32le sampleRate][u8 channels][s16le PCM-Samples]` |
-| Client → Server | `2` (Input) | `[u8 type=2][u16le keyBitmask]` (Bitreihenfolge: A, B, Select, Start, Right, Left, Up, Down, R, L) |
-
-Zusätzlich: `GET /status` (nur auf Player-Ports 6801–6804) liefert JSON `{"occupied": bool}` mit
-CORS, für die Lobby-Belegungsanzeige.
+Siehe [`docs/protocol.md`](docs/protocol.md) — Single Source of Truth, gegen die alle Clients
+implementieren.
 
 ## Ziel dieses Repos
 
 Ein eigenständiges, generelles Client-Framework für dieses Protokoll bauen — als Ablösung/Ergänzung
 zum eingebetteten HTML/JS-String auf Serverseite.
+
+## Architektur
+
+Geteilte Protokoll-/Codec-Logik (WebSocket-Framing, raw-deflate-Inflate, RGB565-Konvertierung,
+PCM-Buffering, Input-Encoding) liegt in [`core/`](core/) als portable C-Library. Jede Plattform
+bekommt darüber eine dünne Shell für Netzwerk, Rendering, Audio-Ausgabe und Input-Polling, da diese
+Teile je nach Zielplattform grundverschieden sind:
+
+| Verzeichnis | Zielplattform | Toolchain |
+|---|---|---|
+| [`clients/android/`](clients/android/) | Android-App | Android SDK/NDK |
+| [`clients/3ds/`](clients/3ds/) | Nintendo 3DS Homebrew | devkitARM / libctru |
+| [`clients/switch/`](clients/switch/) | Nintendo Switch Homebrew | devkitA64 / libnx |
+| [`clients/nds/`](clients/nds/) | Nintendo DS Homebrew | devkitARM / libnds — **zurückgestellt**, siehe [`docs/nds-feasibility.md`](docs/nds-feasibility.md) |
+
+Reihenfolge: Android, 3DS, Switch zuerst. Die NDS-WLAN-Hardware ist auf 1–2 Mbit/s begrenzt, was
+mit dem aktuellen Protokoll (Stereo-Audio allein braucht bereits ~1 Mbit/s) nicht ausreicht — Details
+und Optionen in der Machbarkeitsanalyse.
