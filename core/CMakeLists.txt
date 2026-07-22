@@ -6,7 +6,9 @@ option(FINLINK_BUILD_TESTS "Build finlink_core unit tests" ON)
 add_library(finlink_core STATIC
     src/protocol.c
     src/inflate.c
+    src/websocket.c
     third_party/miniz/miniz_tinfl.c
+    third_party/teeny-sha1/teeny-sha1.c
 )
 
 target_include_directories(finlink_core
@@ -14,6 +16,7 @@ target_include_directories(finlink_core
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     PRIVATE
         third_party/miniz
+        third_party/teeny-sha1
 )
 
 target_compile_features(finlink_core PUBLIC c_std_99)

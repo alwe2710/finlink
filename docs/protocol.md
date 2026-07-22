@@ -23,6 +23,37 @@ Bitreihenfolge Input-Bitmask (Bit 0 = LSB): `A, B, Select, Start, Right, Left, U
 
 Alle Mehrbyte-Felder sind Little-Endian.
 
+## WebSocket-Handshake und -Framing
+
+Serverseitig ist das WebSocket-Handling selbst (nicht nur das App-Layer-Protokoll
+oben) handgerollt (`GBAStreamHost::PerformHandshake`, `TryParseWebSocketFrame`,
+`SendWebSocketBinaryFrame`), nicht das Standardverhalten einer WS-Library. Für
+Clients relevant, insbesondere auf Plattformen ohne eigenen WS-Client
+(3DS/Switch-Homebrew):
+
+- Handshake ist Standard-RFC6455: `Sec-WebSocket-Key` → `SHA1(key + "258EAFA5-
+  E914-47DA-95CA-C5AB0DC85B11")` → Base64 → `Sec-WebSocket-Accept`, vom Client
+  zu verifizieren.
+- Server-Frames sind immer unmaskiert, `FIN=1`, Opcode `0x2` (Binary), 7/16/64-Bit
+  Längenfeld je nach Payload-Größe.
+- Client-Frames müssen laut RFC **maskiert** gesendet werden.
+- **Keine Fragmentierung** (`FIN=0` gilt als Protokollfehler, wird vom Server
+  weder gesendet noch akzeptiert), **kein Ping/Pong**, **kein
+  `permessage-deflate`** — die Deflate-Kompression passiert ausschließlich
+  manuell auf dem Video-Payload (siehe oben), nicht auf WS-Ebene.
+- Server schickt beim Schließen keinen Close-Frame zurück; nach Senden/Empfangen
+  eines Close-Frames (`Opcode 0x8`) einfach die TCP-Verbindung schließen.
+
+Client-seitige Implementierung dieses Teils liegt in
+[`../core/include/finlink/websocket.h`](../core/include/finlink/websocket.h).
+
+## Frame-Semantik (Video-Dedup)
+
+Der Server überspringt Video-Frames, die pixelgleich zum zuletzt gesendeten
+Frame sind. Ausbleiben einer neuen Video-Message ist daher normal, kein
+Timeout-/Fehlerzustand — Clients müssen einfach das zuletzt empfangene Bild
+weiter anzeigen.
+
 ## HTTP
 
 `GET /status` — nur auf Player-Ports (6801–6804), nicht auf der Lobby.
@@ -31,7 +62,11 @@ Alle Mehrbyte-Felder sind Little-Endian.
 { "occupied": true }
 ```
 
-Response hat CORS-Header gesetzt (dient der Lobby-Belegungsanzeige).
+Response hat CORS-Header gesetzt (dient der Lobby-Belegungsanzeige). Die Lobby
+(Port 6800) liefert auf jedem Pfad unbedingt dieselbe HTML-Seite aus — es gibt
+dort **keinen** gebündelten Status über alle vier Player-Ports. Ein eigener
+Picker (statt der eingebetteten HTML-Lobby) muss `/status` selbst einzeln auf
+6801–6804 pollen.
 
 ## Bekannte Einschränkungen / offene Fragen
 

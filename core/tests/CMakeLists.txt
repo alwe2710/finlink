@@ -5,3 +5,7 @@ add_test(NAME protocol COMMAND finlink_test_protocol)
 add_executable(finlink_test_inflate test_inflate.c)
 target_link_libraries(finlink_test_inflate PRIVATE finlink_core)
 add_test(NAME inflate COMMAND finlink_test_inflate)
+
+add_executable(finlink_test_websocket test_websocket.c)
+target_link_libraries(finlink_test_websocket PRIVATE finlink_core)
+add_test(NAME websocket COMMAND finlink_test_websocket)
