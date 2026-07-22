@@ -1,0 +1,7 @@
+add_executable(finlink_test_protocol test_protocol.c)
+target_link_libraries(finlink_test_protocol PRIVATE finlink_core)
+add_test(NAME protocol COMMAND finlink_test_protocol)
+
+add_executable(finlink_test_inflate test_inflate.c)
+target_link_libraries(finlink_test_inflate PRIVATE finlink_core)
+add_test(NAME inflate COMMAND finlink_test_inflate)
