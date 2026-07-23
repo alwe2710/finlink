@@ -16,6 +16,8 @@
     <string name="settings">Einstellungen</string>
     <string name="back">Zurück</string>
     <string name="settings_on_screen_controls">On-Screen-Controls anzeigen</string>
+    <string name="settings_display">Anzeige</string>
+    <string name="settings_bilinear_filter">Bilineare Filterung (statt Nearest-Neighbor)</string>
     <string name="settings_key_bindings">Tastenzuweisungen</string>
     <string name="settings_bind">Zuweisen</string>
     <string name="settings_clear">Löschen</string>

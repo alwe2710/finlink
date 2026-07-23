@@ -4,10 +4,10 @@ import android.content.Context
 import android.content.SharedPreferences
 
 /**
- * The two settings this app has: an optional physical-key (keyboard/game
- * controller) binding per GBA button, and whether the on-screen touch
- * overlay is shown in the player. Both are set from SettingsActivity and
- * read by PlayerActivity.
+ * Settings, all set from SettingsActivity and read by PlayerActivity: an
+ * optional physical-key (keyboard/game controller) binding per GBA button,
+ * whether the on-screen touch overlay is shown, and whether upscaled video
+ * uses bilinear or nearest-neighbor filtering.
  */
 class Prefs(context: Context) {
 
@@ -35,10 +35,19 @@ class Prefs(context: Context) {
         get() = prefs.getBoolean(PREF_ON_SCREEN_CONTROLS, true)
         set(value) = prefs.edit().putBoolean(PREF_ON_SCREEN_CONTROLS, value).apply()
 
+    /** true = bilinear filtering (smooth upscale), false = nearest-neighbor
+     * filtering (crisp/pixelated upscale, the default). The GBA's native
+     * 240x160 framebuffer is upscaled a lot to fill the screen, so this is
+     * the usual "smooth vs. pixelated" toggle emulators offer for that. */
+    var bilinearVideoFilter: Boolean
+        get() = prefs.getBoolean(PREF_BILINEAR_VIDEO_FILTER, false)
+        set(value) = prefs.edit().putBoolean(PREF_BILINEAR_VIDEO_FILTER, value).apply()
+
     private fun prefKeyFor(button: GbaButton) = "keybind_${button.prefKey}"
 
     companion object {
         private const val PREF_ON_SCREEN_CONTROLS = "on_screen_controls"
+        private const val PREF_BILINEAR_VIDEO_FILTER = "bilinear_video_filter"
         private const val NO_KEYCODE = -1
     }
 }

@@ -8,6 +8,7 @@ import android.media.AudioTrack
 import android.os.Bundle
 import android.view.KeyEvent
 import android.view.View
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
@@ -35,6 +36,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
@@ -68,6 +70,7 @@ class PlayerActivity : ComponentActivity(), GbaStreamClient.Listener {
     private var connected by mutableStateOf(false)
     private var disconnectedReason by mutableStateOf<String?>(null)
     private var onScreenControlsEnabled by mutableStateOf(true)
+    private var bilinearVideoFilter by mutableStateOf(false)
 
     // Touch and physical-key input are tracked separately and OR'd together
     // when sent, so releasing one source doesn't clobber bits the other
@@ -80,10 +83,16 @@ class PlayerActivity : ComponentActivity(), GbaStreamClient.Listener {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableImmersiveMode()
+        // Keep the screen on for as long as the stream is being watched --
+        // otherwise the system dims/locks mid-session same as it would
+        // during any other idle screen. Tied to this window, so it's lifted
+        // automatically once the Activity is no longer shown.
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         prefs = Prefs(this)
         keyCodeToBit = prefs.keyBindingsByKeyCode()
         onScreenControlsEnabled = prefs.onScreenControlsEnabled
+        bilinearVideoFilter = prefs.bilinearVideoFilter
 
         setContent {
             FinlinkTheme {
@@ -109,6 +118,10 @@ class PlayerActivity : ComponentActivity(), GbaStreamClient.Listener {
                         bitmap = bitmap.asImageBitmap(),
                         contentDescription = null,
                         contentScale = ContentScale.Fit,
+                        // Bilinear (Low) smooths the upscale from the GBA's
+                        // native 240x160; None gives nearest-neighbor, the
+                        // crisp/pixelated look -- the Settings toggle.
+                        filterQuality = if (bilinearVideoFilter) FilterQuality.Low else FilterQuality.None,
                         modifier = Modifier.fillMaxSize()
                     )
                 }

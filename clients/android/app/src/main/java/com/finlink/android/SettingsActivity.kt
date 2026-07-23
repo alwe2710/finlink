@@ -47,12 +47,14 @@ class SettingsActivity : ComponentActivity() {
     private lateinit var prefs: Prefs
     private var pendingBindTarget: GbaButton? = null
     private var onScreenControlsEnabled by mutableStateOf(true)
+    private var bilinearVideoFilter by mutableStateOf(false)
     private val bindingTexts = mutableStateMapOf<GbaButton, String>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = Prefs(this)
         onScreenControlsEnabled = prefs.onScreenControlsEnabled
+        bilinearVideoFilter = prefs.bilinearVideoFilter
         GBA_BUTTONS.forEach { bindingTexts[it] = describeBinding(it) }
 
         setContent {
@@ -79,6 +81,26 @@ class SettingsActivity : ComponentActivity() {
                                     onCheckedChange = {
                                         onScreenControlsEnabled = it
                                         prefs.onScreenControlsEnabled = it
+                                    }
+                                )
+                            }
+
+                            Spacer(Modifier.height(16.dp))
+                            HorizontalDivider()
+                            Spacer(Modifier.height(16.dp))
+
+                            Text(stringResource(R.string.settings_display), style = MaterialTheme.typography.titleMedium)
+                            Spacer(Modifier.height(8.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    stringResource(R.string.settings_bilinear_filter),
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Switch(
+                                    checked = bilinearVideoFilter,
+                                    onCheckedChange = {
+                                        bilinearVideoFilter = it
+                                        prefs.bilinearVideoFilter = it
                                     }
                                 )
                             }
