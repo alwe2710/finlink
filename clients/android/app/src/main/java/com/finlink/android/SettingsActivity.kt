@@ -46,17 +46,6 @@ class SettingsActivity : ComponentActivity() {
 
     private lateinit var prefs: Prefs
     private var pendingBindTarget: GbaButton? = null
-
-    // The DOWN that completes a binding clears pendingBindTarget immediately
-    // (so a second key press doesn't get treated as another bind attempt),
-    // but its matching UP arrives as a separate dispatchKeyEvent call right
-    // after -- with pendingBindTarget already null, that UP would otherwise
-    // fall through to super and reach whatever composable has focus (e.g.
-    // re-triggering "Zuweisen" itself on Enter/DPad-Center, or just visibly
-    // registering as normal input). Swallowing every event for this keyCode
-    // until its UP arrives closes that gap.
-    private var swallowKeyCode: Int? = null
-
     private var onScreenControlsEnabled by mutableStateOf(true)
     private val bindingTexts = mutableStateMapOf<GbaButton, String>()
 
@@ -142,22 +131,13 @@ class SettingsActivity : ComponentActivity() {
     }
 
     /** Intercepts the next key press while a binding is pending, regardless
-     * of which composable has focus, and swallows the rest of that same
-     * physical press (any repeat DOWNs plus the final UP) so none of it
-     * reaches the view hierarchy as ordinary input. */
+     * of which composable has focus. */
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         val target = pendingBindTarget
         if (target != null && event.action == KeyEvent.ACTION_DOWN) {
             prefs.setKeyBinding(target, event.keyCode)
             pendingBindTarget = null
-            swallowKeyCode = event.keyCode
             bindingTexts[target] = describeBinding(target)
-            return true
-        }
-        if (swallowKeyCode == event.keyCode) {
-            if (event.action == KeyEvent.ACTION_UP) {
-                swallowKeyCode = null
-            }
             return true
         }
         return super.dispatchKeyEvent(event)
