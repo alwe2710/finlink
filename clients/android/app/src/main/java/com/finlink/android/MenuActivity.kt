@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -76,6 +77,7 @@ class MenuActivity : ComponentActivity() {
     private var statusText by mutableStateOf("")
 
     private var discovering by mutableStateOf(false)
+    private var discoveryProgress by mutableStateOf(0f)
     private var discoveryStatusText by mutableStateOf("")
     private val discoveredServers = mutableStateListOf<String>()
 
@@ -163,6 +165,13 @@ class MenuActivity : ComponentActivity() {
                                 }
                             }
                             Spacer(Modifier.height(4.dp))
+                            if (discovering) {
+                                LinearProgressIndicator(
+                                    progress = { discoveryProgress },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                Spacer(Modifier.height(4.dp))
+                            }
                             Text(
                                 discoveryStatusText,
                                 style = MaterialTheme.typography.bodySmall,
@@ -261,6 +270,7 @@ class MenuActivity : ComponentActivity() {
 
     private fun startDiscovery() {
         discovering = true
+        discoveryProgress = 0f
         discoveredServers.clear()
         discoveryStatusText = getString(R.string.discovery_scanning)
 
@@ -289,7 +299,7 @@ class MenuActivity : ComponentActivity() {
                     } finally {
                         val done = doneCount.incrementAndGet()
                         runOnUiThread {
-                            discoveryStatusText = getString(R.string.discovery_progress, done, hosts.size)
+                            discoveryProgress = done.toFloat() / hosts.size.toFloat()
                         }
                         latch.countDown()
                     }
