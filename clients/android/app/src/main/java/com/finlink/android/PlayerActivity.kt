@@ -13,11 +13,16 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -30,11 +35,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import java.nio.ByteBuffer
 
 /**
@@ -58,6 +65,8 @@ class PlayerActivity : ComponentActivity(), GbaStreamClient.Listener {
 
     private var videoBitmap by mutableStateOf<Bitmap?>(null)
     private var statusText by mutableStateOf("")
+    private var connected by mutableStateOf(false)
+    private var disconnectedReason by mutableStateOf<String?>(null)
     private var onScreenControlsEnabled by mutableStateOf(true)
 
     // Touch and physical-key input are tracked separately and OR'd together
@@ -104,38 +113,87 @@ class PlayerActivity : ComponentActivity(), GbaStreamClient.Listener {
                     )
                 }
 
-                Text(
-                    statusText,
-                    color = Color.White,
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(8.dp)
-                        .background(Color(0x80000000))
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                )
-
-                TextButton(
-                    onClick = { finish() },
-                    modifier = Modifier.align(Alignment.TopEnd).padding(8.dp)
-                ) {
-                    Text(stringResource(R.string.disconnect))
+                // Only shown before the stream is actually up (connecting,
+                // or a pre-connect failure) -- once streaming, an unexpected
+                // drop shows the dialog below instead, not this.
+                if (!connected) {
+                    Text(
+                        statusText,
+                        color = Color.White,
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(8.dp)
+                            .background(Color(0x80000000))
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
                 }
 
+                // No manual disconnect button: the system back button already
+                // finishes this Activity, which tears the session down via
+                // onDestroy() -> disconnect().
+
+                // Mobile-emulator-style overlay, matching the web client's
+                // layout (GBAStreamClientPage.h): shoulder buttons flush in
+                // the top corners, Select/Start centered at the top between
+                // them, D-pad bottom-left, A/B diagonal cluster bottom-right
+                // -- offset like the real GBA's button placement, not a
+                // plain row.
                 if (onScreenControlsEnabled) {
-                    Row(
+                    HoldButton(
+                        "L", GbaStreamClient.KEY_L, shape = RoundedCornerShape(8.dp),
                         modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .fillMaxWidth()
+                            .align(Alignment.TopStart)
+                            .padding(top = 16.dp, start = 16.dp)
+                            .size(width = 64.dp, height = 40.dp)
+                    )
+                    HoldButton(
+                        "R", GbaStreamClient.KEY_R, shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(top = 16.dp, end = 16.dp)
+                            .size(width = 64.dp, height = 40.dp)
+                    )
+
+                    Row(
+                        modifier = Modifier.align(Alignment.TopCenter).padding(top = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        GBA_BUTTONS.forEach { button ->
-                            HoldButton(
-                                label = button.label,
-                                modifier = Modifier.weight(1f),
-                                onPressChange = { pressed ->
-                                    touchMask = if (pressed) touchMask or button.bit else touchMask and button.bit.inv()
-                                    sendCombinedInput()
-                                }
-                            )
+                        HoldButton(
+                            "Select", GbaStreamClient.KEY_SELECT,
+                            shape = RoundedCornerShape(50),
+                            modifier = Modifier.size(width = 64.dp, height = 28.dp)
+                        )
+                        HoldButton(
+                            "Start", GbaStreamClient.KEY_START,
+                            shape = RoundedCornerShape(50),
+                            modifier = Modifier.size(width = 64.dp, height = 28.dp)
+                        )
+                    }
+
+                    DPad(modifier = Modifier.align(Alignment.BottomStart).padding(24.dp))
+                    ActionButtons(modifier = Modifier.align(Alignment.BottomEnd).padding(24.dp))
+                }
+            }
+
+            // onDisconnected() only ever fires for a drop the session didn't
+            // ask for (handshake/connect failure, peer closed, protocol
+            // error) -- a user-initiated exit goes through the system back
+            // button -> finish() -> onDestroy() directly, never through
+            // here. So every time this shows, it's genuinely unexpected.
+            // Custom Dialog instead of AlertDialog: the default M3 AlertDialog
+            // reserves generous fixed spacing between the message and the
+            // button row that looked like dead space for a one-line reason.
+            disconnectedReason?.let { reason ->
+                Dialog(onDismissRequest = { finish() }) {
+                    Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surface) {
+                        Column(modifier = Modifier.padding(20.dp)) {
+                            Text(stringResource(R.string.stream_lost_title), style = MaterialTheme.typography.titleMedium)
+                            Spacer(Modifier.height(8.dp))
+                            Text(reason, style = MaterialTheme.typography.bodyMedium)
+                            Spacer(Modifier.height(12.dp))
+                            TextButton(onClick = { finish() }, modifier = Modifier.align(Alignment.End)) {
+                                Text(stringResource(R.string.ok))
+                            }
                         }
                     }
                 }
@@ -143,29 +201,69 @@ class PlayerActivity : ComponentActivity(), GbaStreamClient.Listener {
         }
     }
 
+    /** Cross-shaped D-pad: only the four edge-center cells of a 3x3 grid are
+     * filled, which alone reads as a plus/cross, matching a real D-pad
+     * instead of four buttons in a row. */
+    @Composable
+    private fun DPad(modifier: Modifier = Modifier) {
+        val segment = 56.dp
+        Box(modifier = modifier.size(segment * 3)) {
+            HoldButton(
+                "▲", GbaStreamClient.KEY_UP, shape = RoundedCornerShape(6.dp),
+                modifier = Modifier.align(Alignment.TopCenter).size(segment)
+            )
+            HoldButton(
+                "▼", GbaStreamClient.KEY_DOWN, shape = RoundedCornerShape(6.dp),
+                modifier = Modifier.align(Alignment.BottomCenter).size(segment)
+            )
+            HoldButton(
+                "◀", GbaStreamClient.KEY_LEFT, shape = RoundedCornerShape(6.dp),
+                modifier = Modifier.align(Alignment.CenterStart).size(segment)
+            )
+            HoldButton(
+                "▶", GbaStreamClient.KEY_RIGHT, shape = RoundedCornerShape(6.dp),
+                modifier = Modifier.align(Alignment.CenterEnd).size(segment)
+            )
+        }
+    }
+
+    /** B bottom-left, A top-end within the same cluster -- the diagonal
+     * offset the real GBA has between the two, not side-by-side. */
+    @Composable
+    private fun ActionButtons(modifier: Modifier = Modifier) {
+        val size = 72.dp
+        Box(modifier = modifier.size(width = size * 2, height = size * 1.6f)) {
+            HoldButton(
+                "B", GbaStreamClient.KEY_B, shape = CircleShape,
+                modifier = Modifier.align(Alignment.BottomStart).size(size)
+            )
+            HoldButton(
+                "A", GbaStreamClient.KEY_A, shape = CircleShape,
+                modifier = Modifier.align(Alignment.TopEnd).size(size)
+            )
+        }
+    }
+
     /** Plain Button/clickable() only fires on release-tap; a GBA button
      * needs a real press/release pair (held = keeps sending the bit), hence
      * detectTapGestures(onPress) + awaitRelease() instead. */
     @Composable
-    private fun HoldButton(label: String, onPressChange: (Boolean) -> Unit, modifier: Modifier = Modifier) {
+    private fun HoldButton(label: String, bit: Int, shape: Shape, modifier: Modifier = Modifier) {
         Box(
             modifier = modifier
-                .padding(2.dp)
-                .background(
-                    MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.85f),
-                    RoundedCornerShape(8.dp)
-                )
-                .pointerInput(Unit) {
+                .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.85f), shape)
+                .pointerInput(bit) {
                     detectTapGestures(onPress = {
-                        onPressChange(true)
+                        touchMask = touchMask or bit
+                        sendCombinedInput()
                         try {
                             awaitRelease()
                         } finally {
-                            onPressChange(false)
+                            touchMask = touchMask and bit.inv()
+                            sendCombinedInput()
                         }
                     })
-                }
-                .padding(vertical = 14.dp),
+                },
             contentAlignment = Alignment.Center
         ) {
             Text(label, color = MaterialTheme.colorScheme.onSecondaryContainer)
@@ -215,19 +313,18 @@ class PlayerActivity : ComponentActivity(), GbaStreamClient.Listener {
     private fun connectTo(host: String, port: Int) {
         touchMask = 0
         physicalMask = 0
+        connected = false
+        disconnectedReason = null
         val c = GbaStreamClient(this)
         client = c
         statusText = getString(R.string.status_connecting)
         c.connect(host, port)
     }
 
-    private fun disconnect(resetStatusText: Boolean = true) {
+    private fun disconnect() {
         client?.disconnect()
         client = null
         stopAudio()
-        if (resetStatusText) {
-            statusText = getString(R.string.status_disconnected)
-        }
     }
 
     private fun stopAudio() {
@@ -242,7 +339,7 @@ class PlayerActivity : ComponentActivity(), GbaStreamClient.Listener {
     // writing to AudioTrack from a background thread is exactly what it's for.
 
     override fun onConnected() {
-        runOnUiThread { statusText = getString(R.string.status_connected) }
+        runOnUiThread { connected = true }
     }
 
     override fun onVideoFrame(width: Int, height: Int, rgb565: ByteArray) {
@@ -284,10 +381,23 @@ class PlayerActivity : ComponentActivity(), GbaStreamClient.Listener {
         // The native session thread calls this right before it exits on its
         // own (connect/handshake failure, peer closed, protocol error) --
         // must still route through disconnect() to join the thread and
-        // release the global JNI ref to this Activity, or both leak.
+        // release the global JNI ref to this Activity, or both leak. A
+        // user-initiated exit goes through the system back button instead,
+        // straight to onDestroy(), never through here -- so this is always
+        // an unexpected drop.
         runOnUiThread {
-            disconnect(resetStatusText = false)
-            statusText = getString(R.string.status_error, reason)
+            val wasConnected = connected
+            disconnect()
+            connected = false
+            if (wasConnected) {
+                // Stream was up and dropped on its own -- the hidden status
+                // text alone wouldn't be noticed mid-game, so surface it.
+                disconnectedReason = reason
+            } else {
+                // Never got connected in the first place (e.g. handshake
+                // failure) -- no stream was "lost", just show it inline.
+                statusText = getString(R.string.status_error, reason)
+            }
         }
     }
 

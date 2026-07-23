@@ -125,7 +125,7 @@ class MenuActivity : ComponentActivity() {
                                 )
                                 Spacer(Modifier.width(8.dp))
                                 Button(onClick = { searchLobby() }, enabled = !searching) {
-                                    Text(stringResource(R.string.search))
+                                    Text(stringResource(R.string.menu_connect))
                                 }
                             }
 
