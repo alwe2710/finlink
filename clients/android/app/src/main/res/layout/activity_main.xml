@@ -4,28 +4,69 @@
     android:orientation="vertical"
     android:background="#000000">
 
+    <!-- Step 1: just the host, no port. The four player ports (6801-6804)
+         are fixed by the protocol (docs/protocol.md), so there's nothing
+         useful for the user to type there. -->
     <LinearLayout
+        android:id="@+id/lobbySearchRow"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:padding="8dp">
 
         <EditText
-            android:id="@+id/hostPortInput"
+            android:id="@+id/hostInput"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:hint="@string/host_port_hint"
+            android:hint="@string/host_hint"
             android:inputType="textUri"
             android:singleLine="true"
             android:textColor="#FFFFFF"
             android:textColorHint="#808080" />
 
         <Button
-            android:id="@+id/connectButton"
+            android:id="@+id/searchButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@string/connect" />
+            android:text="@string/search" />
+    </LinearLayout>
+
+    <!-- Step 2: P1-P4 picker, filled in after polling GET /status on all
+         four player ports. Mirrors the web lobby's picker, but as native
+         views instead of the embedded HTML page (GBAStreamClientPage.h). -->
+    <LinearLayout
+        android:id="@+id/lobbyPickerRow"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:weightSum="4"
+        android:paddingLeft="8dp"
+        android:paddingRight="8dp"
+        android:paddingBottom="8dp"
+        android:visibility="gone">
+
+        <Button android:id="@+id/btnP1" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="P1" />
+        <Button android:id="@+id/btnP2" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="P2" />
+        <Button android:id="@+id/btnP3" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="P3" />
+        <Button android:id="@+id/btnP4" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="P4" />
+    </LinearLayout>
+
+    <!-- Step 3: connected. Lobby rows above are hidden, this is the only
+         thing shown alongside the video/status/controls below. -->
+    <LinearLayout
+        android:id="@+id/connectedRow"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="8dp"
+        android:visibility="gone">
+
+        <Button
+            android:id="@+id/disconnectButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/disconnect" />
     </LinearLayout>
 
     <ImageView

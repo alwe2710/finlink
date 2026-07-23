@@ -8,55 +8,83 @@ import android.media.AudioManager
 import android.media.AudioTrack
 import android.os.Bundle
 import android.view.MotionEvent
+import android.view.View
 import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.TextView
+import java.net.HttpURLConnection
+import java.net.URL
 import java.nio.ByteBuffer
+import org.json.JSONObject
 
 /**
- * Bare-bones demo activity: host:port entry, video as a plain ImageView,
- * PCM playback via AudioTrack, and hold-to-press buttons for the 10 GBA
- * buttons. No lobby/picker UI (see docs/protocol.md on why the lobby can't
- * offer a combined status anyway) -- point it directly at one player port.
+ * Bare-bones demo activity. Three states, one Activity (no navigation):
+ *
+ * 1. Lobby search: enter just the host (no port -- player ports are fixed
+ *    by the protocol, see [GbaStreamClient.PLAYER_BASE_PORT]).
+ * 2. Lobby picker: P1-P4, filled in from polling GET /status on all four
+ *    player ports. Native equivalent of the web lobby's picker page
+ *    (GBAStreamClientPage.h) -- see docs/protocol.md on why this has to
+ *    poll each port individually rather than ask the lobby for a combined
+ *    status.
+ * 3. Connected: video as a plain ImageView, PCM playback via AudioTrack,
+ *    hold-to-press buttons for the 10 GBA buttons.
  */
 class MainActivity : Activity(), GbaStreamClient.Listener {
 
-    private lateinit var hostPortInput: EditText
-    private lateinit var connectButton: Button
+    private lateinit var lobbySearchRow: LinearLayout
+    private lateinit var lobbyPickerRow: LinearLayout
+    private lateinit var connectedRow: LinearLayout
+    private lateinit var hostInput: EditText
+    private lateinit var searchButton: Button
+    private lateinit var playerButtons: List<Button>
     private lateinit var videoView: ImageView
     private lateinit var statusText: TextView
 
     private var client: GbaStreamClient? = null
     private var audioTrack: AudioTrack? = null
     private var keyMask = 0
+    private var lastSearchedHost: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        hostPortInput = findViewById(R.id.hostPortInput)
-        connectButton = findViewById(R.id.connectButton)
+        lobbySearchRow = findViewById(R.id.lobbySearchRow)
+        lobbyPickerRow = findViewById(R.id.lobbyPickerRow)
+        connectedRow = findViewById(R.id.connectedRow)
+        hostInput = findViewById(R.id.hostInput)
+        searchButton = findViewById(R.id.searchButton)
         videoView = findViewById(R.id.videoView)
         statusText = findViewById(R.id.statusText)
+        playerButtons = listOf(
+            findViewById(R.id.btnP1), findViewById(R.id.btnP2),
+            findViewById(R.id.btnP3), findViewById(R.id.btnP4)
+        )
 
-        connectButton.setOnClickListener {
-            if (client == null) connect() else disconnect()
+        searchButton.setOnClickListener { searchLobby() }
+        playerButtons.forEachIndexed { index, button ->
+            button.setOnClickListener {
+                lastSearchedHost?.let { host -> connectTo(host, GbaStreamClient.PLAYER_BASE_PORT + index) }
+            }
         }
+        findViewById<Button>(R.id.disconnectButton).setOnClickListener { disconnect() }
 
-        bindButton(R.id.btnUp, GbaStreamClient.KEY_UP)
-        bindButton(R.id.btnDown, GbaStreamClient.KEY_DOWN)
-        bindButton(R.id.btnLeft, GbaStreamClient.KEY_LEFT)
-        bindButton(R.id.btnRight, GbaStreamClient.KEY_RIGHT)
-        bindButton(R.id.btnA, GbaStreamClient.KEY_A)
-        bindButton(R.id.btnB, GbaStreamClient.KEY_B)
-        bindButton(R.id.btnSelect, GbaStreamClient.KEY_SELECT)
-        bindButton(R.id.btnStart, GbaStreamClient.KEY_START)
-        bindButton(R.id.btnL, GbaStreamClient.KEY_L)
-        bindButton(R.id.btnR, GbaStreamClient.KEY_R)
+        bindGbaButton(R.id.btnUp, GbaStreamClient.KEY_UP)
+        bindGbaButton(R.id.btnDown, GbaStreamClient.KEY_DOWN)
+        bindGbaButton(R.id.btnLeft, GbaStreamClient.KEY_LEFT)
+        bindGbaButton(R.id.btnRight, GbaStreamClient.KEY_RIGHT)
+        bindGbaButton(R.id.btnA, GbaStreamClient.KEY_A)
+        bindGbaButton(R.id.btnB, GbaStreamClient.KEY_B)
+        bindGbaButton(R.id.btnSelect, GbaStreamClient.KEY_SELECT)
+        bindGbaButton(R.id.btnStart, GbaStreamClient.KEY_START)
+        bindGbaButton(R.id.btnL, GbaStreamClient.KEY_L)
+        bindGbaButton(R.id.btnR, GbaStreamClient.KEY_R)
     }
 
-    private fun bindButton(id: Int, bit: Int) {
+    private fun bindGbaButton(id: Int, bit: Int) {
         findViewById<Button>(id).setOnTouchListener { _, event ->
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> keyMask = keyMask or bit
@@ -68,30 +96,103 @@ class MainActivity : Activity(), GbaStreamClient.Listener {
         }
     }
 
-    private fun connect() {
-        val hostPort = hostPortInput.text.toString().trim()
-        val colon = hostPort.lastIndexOf(':')
-        val port = if (colon >= 0) hostPort.substring(colon + 1).toIntOrNull() else null
-        if (colon < 0 || port == null) {
-            statusText.text = getString(R.string.status_error, "erwartet host:port")
+    // --- Lobby search: plain java.net HTTP GET /status on each player port,
+    // off the UI thread. This is ordinary status polling, not the GBA stream
+    // itself, so it deliberately does NOT go through finlink_core/jni_bridge
+    // -- no WebSocket involved here at all.
+
+    private fun searchLobby() {
+        val host = hostInput.text.toString().trim()
+        if (host.isEmpty()) {
+            statusText.text = getString(R.string.status_error, getString(R.string.lobby_host_required))
             return
         }
-        val host = hostPort.substring(0, colon)
 
+        searchButton.isEnabled = false
+        lobbyPickerRow.visibility = View.GONE
+        statusText.text = getString(R.string.lobby_searching)
+
+        Thread {
+            val occupied = (0 until GbaStreamClient.PLAYER_SLOT_COUNT).map { slot ->
+                fetchOccupied(host, GbaStreamClient.PLAYER_BASE_PORT + slot)
+            }
+            runOnUiThread { applyLobbyResults(host, occupied) }
+        }.start()
+    }
+
+    /** null = unreachable (port not configured as GBA (Client-Stream) at all, or unrelated error). */
+    private fun fetchOccupied(host: String, port: Int): Boolean? {
+        var connection: HttpURLConnection? = null
+        return try {
+            connection = (URL("http://$host:$port/status").openConnection() as HttpURLConnection).apply {
+                connectTimeout = 1500
+                readTimeout = 1500
+                requestMethod = "GET"
+            }
+            val body = connection.inputStream.bufferedReader().use { it.readText() }
+            JSONObject(body).optBoolean("occupied", false)
+        } catch (e: Exception) {
+            null
+        } finally {
+            connection?.disconnect()
+        }
+    }
+
+    private fun applyLobbyResults(host: String, occupied: List<Boolean?>) {
+        lastSearchedHost = host
+        searchButton.isEnabled = true
+
+        var anyFree = false
+        playerButtons.forEachIndexed { index, button ->
+            when (occupied[index]) {
+                false -> {
+                    button.isEnabled = true
+                    button.alpha = 1.0f
+                    anyFree = true
+                }
+                true -> {
+                    button.isEnabled = false
+                    button.alpha = 0.5f
+                }
+                null -> {
+                    button.isEnabled = false
+                    button.alpha = 0.3f
+                }
+            }
+        }
+
+        lobbyPickerRow.visibility = View.VISIBLE
+        statusText.text = if (anyFree) getString(R.string.lobby_pick) else getString(R.string.lobby_none_free)
+    }
+
+    // --- Connection lifecycle ---
+
+    private fun connectTo(host: String, port: Int) {
         keyMask = 0
         val c = GbaStreamClient(this)
         client = c
+
+        lobbySearchRow.visibility = View.GONE
+        lobbyPickerRow.visibility = View.GONE
+        connectedRow.visibility = View.VISIBLE
         statusText.text = getString(R.string.status_connecting)
-        connectButton.text = getString(R.string.disconnect)
+
         c.connect(host, port)
     }
 
-    private fun disconnect() {
+    private fun disconnect(resetStatusText: Boolean = true) {
         client?.disconnect()
         client = null
         stopAudio()
-        connectButton.text = getString(R.string.connect)
-        statusText.text = getString(R.string.status_disconnected)
+
+        connectedRow.visibility = View.GONE
+        lobbySearchRow.visibility = View.VISIBLE
+        // Deliberately not re-showing lobbyPickerRow: occupancy may have
+        // changed since the last search, so require pressing "Suchen" again
+        // rather than showing possibly-stale P1-P4 state.
+        if (resetStatusText) {
+            statusText.text = getString(R.string.status_disconnected)
+        }
     }
 
     private fun stopAudio() {
@@ -150,8 +251,8 @@ class MainActivity : Activity(), GbaStreamClient.Listener {
         // must still route through disconnect() to join the thread and
         // release the global JNI ref to this Activity, or both leak.
         runOnUiThread {
+            disconnect(resetStatusText = false)
             statusText.text = getString(R.string.status_error, reason)
-            disconnect()
         }
     }
 

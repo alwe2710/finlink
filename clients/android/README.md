@@ -1,10 +1,20 @@
 # clients/android
 
-Rohe Demo-App, die den vollen Pfad einmal end-to-end zeigt: verbinden, WS-
-Handshake, Video anzeigen, Audio abspielen, Input zurücksenden. Kein Lobby-
-Picker (siehe [`docs/protocol.md`](../../docs/protocol.md) dazu, warum die
-Lobby dafür ungeeignet ist), keine hübsche Touch-Oberfläche — eine
-Host:Port-Eingabe, ein Videobild, zehn Hold-to-press-Buttons.
+Rohe Demo-App, die den vollen Pfad einmal end-to-end zeigt: Lobby-Suche,
+verbinden, WS-Handshake, Video anzeigen, Audio abspielen, Input zurücksenden.
+Keine hübsche Touch-Oberfläche für die eigentlichen GBA-Tasten — eine
+Host-Eingabe (kein Port nötig), ein nativer P1–P4-Picker, ein Videobild, zehn
+Hold-to-press-Buttons.
+
+Native P1–P4-Lobby statt der eingebetteten HTML-Lobby-Seite: Die Ports
+6801–6804 sind durch das Protokoll fix (siehe
+[`docs/protocol.md`](../../docs/protocol.md)), also reicht die Host-IP.
+„Suchen“ pollt `GET /status` auf allen vier Ports (`java.net.HttpURLConnection`,
+plain HTTP JSON — bewusst *nicht* über `finlink_core`/den WebSocket-Pfad, da es
+kein Teil des Stream-Protokolls ist) und zeigt P1–P4 mit belegten/nicht
+erreichbaren Slots ausgegraut, analog zur Web-Lobby aus
+`GBAStreamClientPage.h`. Die Lobby selbst (Port 6800) liefert dafür keinen
+gebündelten Status — jeder Port muss einzeln gefragt werden.
 
 ## Architektur
 
@@ -60,12 +70,18 @@ beim Öffnen des Projekts automatisch ein.
 
 1. Dolphin (`dolphin-gba-stream`-Fork) mit einem GC-Port auf „GBA
    (Client-Stream)“ starten.
-2. In der App `host:port` des jeweiligen Player-Ports eingeben (z. B.
-   `192.168.1.5:6801`) und „Verbinden“.
+2. In der App die Host-IP eingeben (z. B. `192.168.1.5`) und „Suchen“.
+3. Einen freien P-Slot antippen.
+
+Auf echter Hardware (Samsung Galaxy S22, per WLAN-`adb`) verifiziert: App
+startet ohne Crash, Lobby-Suche läuft (inkl. `usesCleartextTraffic` für die
+`HttpURLConnection`-Aufrufe), P1–P4 werden korrekt als belegt/nicht erreichbar
+ausgegraut. Verbindung zu einem tatsächlich laufenden Dolphin-Stream wurde
+nicht getestet (kein Dolphin-Host im Testnetz verfügbar).
 
 ## Bekannte Lücken (bewusst außerhalb des Rahmens dieser rohen Demo)
 
-- Kein automatischer Player-Picker (manuelle Port-Eingabe statt Lobby-Abfrage
-  über alle vier `/status`-Endpunkte)
 - Touch-Overlay ist eine einzelne Button-Reihe, kein D-Pad-Layout
 - Keine Reconnect-Logik bei Verbindungsabbruch
+- Lobby-Suche fragt die vier Ports nacheinander ab, nicht parallel (bei
+  Timeouts entsprechend langsamer)

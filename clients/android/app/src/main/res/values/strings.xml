@@ -1,10 +1,14 @@
 <resources>
     <string name="app_name">finlink</string>
-    <string name="host_port_hint">host:port, z. B. 192.168.1.5:6801</string>
-    <string name="connect">Verbinden</string>
+    <string name="host_hint">IP-Adresse, z. B. 192.168.1.5</string>
+    <string name="search">Suchen</string>
     <string name="disconnect">Trennen</string>
     <string name="status_disconnected">Nicht verbunden</string>
     <string name="status_connecting">Verbinde…</string>
     <string name="status_connected">Verbunden</string>
     <string name="status_error">Fehler: %1$s</string>
+    <string name="lobby_host_required">Host erforderlich</string>
+    <string name="lobby_searching">Suche…</string>
+    <string name="lobby_pick">Platz wählen</string>
+    <string name="lobby_none_free">Alle Plätze belegt oder nicht erreichbar</string>
 </resources>

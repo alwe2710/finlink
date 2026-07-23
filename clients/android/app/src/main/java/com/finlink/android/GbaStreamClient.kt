@@ -42,6 +42,13 @@ class GbaStreamClient(private val listener: Listener) {
     private external fun nativeDisconnect(handle: Long)
 
     companion object {
+        // Player ports 6801-6804 (docs/protocol.md); the lobby itself (6800)
+        // only ever serves the HTML page on any path, so a native picker has
+        // to poll each player port's /status individually -- there's no
+        // combined status endpoint to ask instead.
+        const val PLAYER_BASE_PORT = 6801
+        const val PLAYER_SLOT_COUNT = 4
+
         // Mirrors finlink_key in core/include/finlink/protocol.h.
         const val KEY_A = 1 shl 0
         const val KEY_B = 1 shl 1
