@@ -1,6 +1,7 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
 }
 
 android {
@@ -36,9 +37,27 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+
+    buildFeatures {
+        compose = true
+    }
 }
 
-// Deliberately no dependencies beyond the Kotlin/Android defaults: this is a
-// bare-bones demo, and everything that matters (transport, protocol, codec)
-// lives in the native finlink_core library instead of a networking/JSON/etc.
-// library on the JVM side.
+// Compose + Material 3 (the UI toolkit/design system this app is built with)
+// is the one deliberate dependency beyond Kotlin/Android defaults; everything
+// that actually matters for the stream itself (transport, protocol, codec)
+// still lives entirely in the native finlink_core library.
+dependencies {
+    // Pinned to a BOM/activity-compose pairing that still targets compileSdk
+    // 34 (this environment's AGP 8.5.0 caps out there); newer Compose/
+    // activity-compose releases require compileSdk 35/36 and AGP 8.6+/8.9+,
+    // which would cascade into re-provisioning most of the toolchain.
+    val composeBom = platform("androidx.compose:compose-bom:2024.09.00")
+    implementation(composeBom)
+
+    implementation("androidx.activity:activity-compose:1.9.2")
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.ui:ui-graphics")
+    implementation("androidx.compose.foundation:foundation")
+    implementation("androidx.compose.material3:material3")
+}

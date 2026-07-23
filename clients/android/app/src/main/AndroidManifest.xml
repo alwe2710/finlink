@@ -2,26 +2,44 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <!-- Needed for the lobby's GET /status polling (java.net.HttpURLConnection
-         in MainActivity), which, unlike the actual GBA stream itself (a raw
-         NDK POSIX socket in cpp/jni_bridge.c), does go through the Java
-         networking stack Android's Network Security Config restricts. -->
+    <!-- Needed for the menu's GET /status polling and discovery sweep
+         (java.net.HttpURLConnection in MenuActivity), which, unlike the
+         actual GBA stream itself (a raw NDK POSIX socket in
+         cpp/jni_bridge.c), does go through the Java networking stack
+         Android's Network Security Config restricts. -->
     <application
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"
-        android:theme="@android:style/Theme.Material.Light.NoActionBar"
+        android:theme="@style/Theme.Finlink"
         android:usesCleartextTraffic="true">
+        <!-- Menu and Settings deliberately have no screenOrientation: they
+             should follow whichever way the device is actually held.
+             configChanges is still declared so rotating doesn't recreate
+             the Activity (and lose in-flight state like a discovered-server
+             list or lobby search results); Compose still recomposes for the
+             new size/configuration regardless, since nothing here is
+             orientation-specific. -->
         <activity
-            android:name=".MainActivity"
+            android:name=".MenuActivity"
             android:exported="true"
-            android:screenOrientation="landscape"
             android:configChanges="orientation|screenSize|keyboardHidden">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity
+            android:name=".SettingsActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+        <!-- PlayerActivity stays landscape-locked: the GBA stream itself
+             is a fixed wide aspect ratio, unlike the menu/settings forms. -->
+        <activity
+            android:name=".PlayerActivity"
+            android:exported="false"
+            android:screenOrientation="landscape"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
     </application>
 </manifest>
