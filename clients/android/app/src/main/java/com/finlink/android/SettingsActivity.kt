@@ -115,6 +115,7 @@ class SettingsActivity : ComponentActivity() {
                                             Text(stringResource(R.string.settings_clear))
                                         }
                                     }
+                                    HorizontalDivider()
                                 }
                             }
                         }
