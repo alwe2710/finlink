@@ -30,24 +30,31 @@ Zufallsbytes für WS-Key und Frame-Maskierung kommen von `arc4random_buf`
 
 ## Bauen
 
-Dieses Projekt wurde in dieser Umgebung **nicht mit Gradle gebaut** — hier
-stehen weder Android NDK/Build-Tools noch ein Emulator/Gerät zur Verfügung
-(nur `platform-tools`/`adb`, JDK 8 statt der von aktuellem AGP benötigten
-JDK 17). Stattdessen wurde der native Teil separat verifiziert: `jni_bridge.c`
-+ alle `core/`-Quellen wurden mit einem echten NDK r27c `clang` für
-`arm64-v8a` und `x86_64` kompiliert und gelinkt (`-Wall -Wextra`, keine
-Warnungen), die drei `Java_com_finlink_android_GbaStreamClient_*`-JNI-Symbole
-sind korrekt im resultierenden `.so` exportiert. Die Kotlin-/Gradle-/
-Resource-Seite (Compile, `R`-Klassen-Generierung, APK-Packaging) ist
-**ungetestet** — zum eigentlichen Bauen und Ausprobieren in Android Studio
-öffnen, das lädt NDK/Build-Tools/JDK automatisch nach:
+Diese Umgebung hatte ursprünglich weder Android NDK/Build-Tools noch JDK 17
+noch Gradle (nur `platform-tools`/`adb`, JDK 8). Für einen vollständigen Build
+wurden JDK 17 (Temurin), Android cmdline-tools, `platform-tools`,
+`platforms;android-34`, `build-tools;34.0.0` und Gradle 8.7 lokal
+nachinstalliert (AGP hat sich beim ersten Build zusätzlich selbst noch
+NDK 26.1.10909125 nachgeladen, da keine `ndkVersion` in `app/build.gradle.kts`
+gepinnt ist). Damit lief `./gradlew assembleDebug` **vollständig durch** —
+Kotlin-Compile, CMake/NDK-Build für alle vier Default-ABIs
+(arm64-v8a/armeabi-v7a/x86/x86_64), Resource-Packaging, alles erfolgreich,
+resultierende `app-debug.apk` mit `aapt dump badging` verifiziert (Package
+`com.finlink.android`, `INTERNET`-Permission, `MainActivity` als
+Launcher-Activity, alle vier `.so`-ABIs und Icons enthalten). Nicht getestet:
+Installation/Ausführung auf einem echten Gerät oder Emulator — hier ist keins
+verfügbar (`adb devices` liefert eine leere Liste).
 
 ```sh
-# In Android Studio: File > Open > clients/android
-# oder von der Kommandozeile mit vollem SDK/NDK/JDK17 vorhanden:
 cd clients/android
 ./gradlew assembleDebug
+# APK liegt danach unter app/build/outputs/apk/debug/app-debug.apk
 ```
+
+Voraussetzung: Android SDK mit `platforms;android-34` und
+`build-tools;34.0.0` sowie ein `sdk.dir` in `clients/android/local.properties`
+(oder `ANDROID_HOME`/`ANDROID_SDK_ROOT` gesetzt) — Android Studio richtet das
+beim Öffnen des Projekts automatisch ein.
 
 ## Ausprobieren
 
