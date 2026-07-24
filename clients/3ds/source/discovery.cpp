@@ -93,6 +93,17 @@ std::optional<std::string> httpGet(const std::string &host, int port, const std:
     return response.substr(headerEnd + 4);
 }
 
+// gethostid() (libctru's soc.h) returns this console's own IPv4 address in
+// network byte order, same as struct in_addr.s_addr. 0 and -1 both mean
+// "no address to report" (no Wi-Fi connection, soc not initialized, ...).
+uint32_t getLocalIp() {
+    long hostidRaw = gethostid();
+    if (hostidRaw == 0 || hostidRaw == -1) {
+        return 0;
+    }
+    return static_cast<uint32_t>(hostidRaw);
+}
+
 } // namespace
 
 namespace discovery {
@@ -100,16 +111,15 @@ namespace discovery {
 std::vector<std::string> localSubnetHosts() {
     std::vector<std::string> hosts;
 
-    // gethostid() (libctru's soc.h) returns this console's own IPv4
-    // address in network byte order, same as struct in_addr.s_addr.
+    uint32_t raw = getLocalIp();
+    if (raw == 0) {
+        return hosts;
+    }
+
     // There's no equivalent of Switch's nifmGetCurrentIpConfigInfo() to
     // query the real subnet mask here, so this assumes the near-universal
     // home-network /24 rather than not offering discovery at all.
-    long hostidRaw = gethostid();
-    if (hostidRaw == 0 || hostidRaw == -1) {
-        return hosts;
-    }
-    uint32_t ip = ntohl(static_cast<uint32_t>(hostidRaw));
+    uint32_t ip = ntohl(raw);
     uint32_t network = ip & 0xFFFFFF00u; // /24
 
     hosts.reserve(254);
@@ -122,6 +132,18 @@ std::vector<std::string> localSubnetHosts() {
         hosts.emplace_back(buf);
     }
     return hosts;
+}
+
+std::string localIpString() {
+    uint32_t raw = getLocalIp();
+    if (raw == 0) {
+        return "";
+    }
+    char buf[INET_ADDRSTRLEN];
+    struct in_addr in;
+    in.s_addr = raw;
+    inet_ntop(AF_INET, &in, buf, sizeof(buf));
+    return std::string(buf);
 }
 
 bool probeLobby(const std::string &ip, int timeoutMs) {

@@ -29,11 +29,7 @@ void Prefs::load() {
         values[line.substr(0, eq)] = line.substr(eq + 1);
     }
 
-    auto it = values.find("on_screen_controls");
-    if (it != values.end()) {
-        onScreenControlsEnabled = it->second == "1";
-    }
-    it = values.find("bilinear_video_filter");
+    auto it = values.find("bilinear_video_filter");
     if (it != values.end()) {
         bilinearVideoFilter = it->second == "1";
     }
@@ -45,6 +41,5 @@ void Prefs::save() {
     if (!out.is_open()) {
         return;
     }
-    out << "on_screen_controls=" << (onScreenControlsEnabled ? "1" : "0") << "\n";
     out << "bilinear_video_filter=" << (bilinearVideoFilter ? "1" : "0") << "\n";
 }

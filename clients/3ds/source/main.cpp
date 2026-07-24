@@ -1,13 +1,15 @@
 // finlink for Nintendo 3DS: top screen shows the GBA stream, bottom
-// screen shows Menu/Settings before connecting and the on-screen touch
-// controls (+ a "Trennen" button) while playing -- the 3DS's dual screens
-// map onto Menu/Settings/Player far more naturally than the
-// single-screen-at-a-time approach the other clients use. See
-// clients/3ds/README.md.
+// screen shows Menu/Settings before connecting and a status + "Trennen"
+// button while playing -- the 3DS's dual screens map onto
+// Menu/Settings/Player far more naturally than the single-screen-at-a-time
+// approach the other clients use. See clients/3ds/README.md.
 //
-// No borealis/Compose-equivalent UI framework here: widgets are hand-rolled
-// citro2d rects/text with manual touch hit-testing (ui.hpp), same spirit as
-// clients/switch/source/video_view.cpp's on-screen controls.
+// No on-screen touch overlay for GBA input here (unlike Android/Switch):
+// the 3DS's physical buttons already match the GBA's layout, and the
+// bottom screen is needed for Menu/Settings/status instead.
+//
+// No borealis/Compose-equivalent UI framework here either: widgets are
+// hand-rolled citro2d rects/text with manual touch hit-testing (ui.hpp).
 
 #include <array>
 #include <atomic>
@@ -32,7 +34,6 @@
 
 namespace {
 
-constexpr int kLobbyPort = 6800;
 constexpr int kPlayerBasePort = 6801;
 constexpr int kPlayerSlotCount = 4;
 constexpr u32 kSocBufferSize = 0x100000;
@@ -110,11 +111,29 @@ void startDiscovery(MenuState *menu) {
             return;
         }
 
-        for (const auto &ip : hosts) {
-            if (discovery::probeLobby(ip)) {
-                std::lock_guard<std::mutex> lock(menu->mutex);
-                menu->discoveredHosts.push_back(ip);
-            }
+        // Probing all 254 hosts one at a time (up to 400ms each) would
+        // take up to ~100 seconds -- split the range across a handful of
+        // worker threads instead. 8 rather than Android's 32: the 3DS's
+        // CPU/RAM are much more limited.
+        constexpr int kWorkers = 8;
+        std::atomic<size_t> nextIndex { 0 };
+        std::vector<std::thread> workers;
+        for (int w = 0; w < kWorkers; w++) {
+            workers.emplace_back([&hosts, &nextIndex, menu]() {
+                for (;;) {
+                    size_t i = nextIndex.fetch_add(1);
+                    if (i >= hosts.size()) {
+                        break;
+                    }
+                    if (discovery::probeLobby(hosts[i])) {
+                        std::lock_guard<std::mutex> lock(menu->mutex);
+                        menu->discoveredHosts.push_back(hosts[i]);
+                    }
+                }
+            });
+        }
+        for (auto &t : workers) {
+            t.join();
         }
 
         std::lock_guard<std::mutex> lock(menu->mutex);
@@ -213,6 +232,15 @@ void drawMenuScreen(C2D_TextBuf textBuf, const ui::Touch &touch, MenuState *menu
 
     ui::drawText(textBuf, statusText.c_str(), 8, 74, 0.42f, ui::kColorTextDim);
 
+    // Diagnostic: if this console has no real LAN IP, no connect attempt
+    // below is ever going to succeed, and that looks identical from the UI
+    // (both "kein freier Slot" and an endless discovery scan) to a
+    // perfectly healthy network where nothing just happens to answer --
+    // this line is the difference.
+    std::string myIp = discovery::localIpString();
+    std::string netLine = myIp.empty() ? "Kein Netzwerk" : ("IP: " + myIp);
+    ui::drawText(textBuf, netLine.c_str(), 190, 74, 0.38f, myIp.empty() ? ui::kColorButtonHeld : ui::kColorTextDim);
+
     ui::Rect discRect { 8, 96, 304, 24 };
     if (ui::button(textBuf, touch, discRect, "Netzwerk durchsuchen", !discovering)) {
         startDiscovery(menu);
@@ -250,15 +278,8 @@ void drawSettingsScreen(C2D_TextBuf textBuf, const ui::Touch &touch, Prefs *pref
                          BottomScreenState *screenState) {
     ui::drawText(textBuf, "Einstellungen", 8, 8, 0.55f, ui::kColorText);
 
-    ui::drawText(textBuf, "Bildschirmsteuerung", 8, 44, 0.45f, ui::kColorText);
-    ui::Rect t1 { 250, 40, 60, 28 };
-    if (ui::toggle(touch, t1, prefs->onScreenControlsEnabled)) {
-        prefs->onScreenControlsEnabled = !prefs->onScreenControlsEnabled;
-        prefs->save();
-    }
-
-    ui::drawText(textBuf, "Bilineare Filterung", 8, 84, 0.45f, ui::kColorText);
-    ui::Rect t2 { 250, 80, 60, 28 };
+    ui::drawText(textBuf, "Bilineare Filterung", 8, 44, 0.45f, ui::kColorText);
+    ui::Rect t2 { 250, 40, 60, 28 };
     if (ui::toggle(touch, t2, prefs->bilinearVideoFilter)) {
         prefs->bilinearVideoFilter = !prefs->bilinearVideoFilter;
         prefs->save();
@@ -271,58 +292,6 @@ void drawSettingsScreen(C2D_TextBuf textBuf, const ui::Touch &touch, Prefs *pref
     }
 }
 
-// Cross-shaped D-pad + diagonal A/B cluster + L/R/Select/Start, matching
-// the other clients' on-screen layout (see
-// clients/switch/source/video_view.cpp's layoutButtons()), adapted to the
-// bottom screen's 320x240.
-uint16_t drawPlayerControls(C2D_TextBuf textBuf, const ui::Touch &touch) {
-    uint16_t mask = 0;
-
-    ui::Rect l { 8, 8, 60, 32 };
-    ui::Rect r { 252, 8, 60, 32 };
-    ui::drawRect(l, touch.heldIn(l) ? ui::kColorButtonHeld : ui::kColorButton);
-    ui::drawText(textBuf, "L", l.x + 24, l.y + 8, 0.5f, ui::kColorText);
-    if (touch.heldIn(l)) mask |= FINLINK_KEY_L;
-    ui::drawRect(r, touch.heldIn(r) ? ui::kColorButtonHeld : ui::kColorButton);
-    ui::drawText(textBuf, "R", r.x + 24, r.y + 8, 0.5f, ui::kColorText);
-    if (touch.heldIn(r)) mask |= FINLINK_KEY_R;
-
-    ui::Rect sel { 100, 8, 56, 26 };
-    ui::Rect start { 164, 8, 56, 26 };
-    ui::drawRect(sel, touch.heldIn(sel) ? ui::kColorButtonHeld : ui::kColorButton);
-    ui::drawText(textBuf, "Select", sel.x + 6, sel.y + 6, 0.4f, ui::kColorText);
-    if (touch.heldIn(sel)) mask |= FINLINK_KEY_SELECT;
-    ui::drawRect(start, touch.heldIn(start) ? ui::kColorButtonHeld : ui::kColorButton);
-    ui::drawText(textBuf, "Start", start.x + 10, start.y + 6, 0.4f, ui::kColorText);
-    if (touch.heldIn(start)) mask |= FINLINK_KEY_START;
-
-    const float seg = 46;
-    float dpadX = 16, dpadY = 96;
-    ui::Rect up { dpadX + seg, dpadY, seg, seg };
-    ui::Rect down { dpadX + seg, dpadY + seg * 2, seg, seg };
-    ui::Rect left { dpadX, dpadY + seg, seg, seg };
-    ui::Rect right { dpadX + seg * 2, dpadY + seg, seg, seg };
-    for (auto &&[rect, bit, label] : { std::tuple { up, FINLINK_KEY_UP, "^" }, std::tuple { down, FINLINK_KEY_DOWN, "v" },
-                                        std::tuple { left, FINLINK_KEY_LEFT, "<" }, std::tuple { right, FINLINK_KEY_RIGHT, ">" } }) {
-        ui::drawRect(rect, touch.heldIn(rect) ? ui::kColorButtonHeld : ui::kColorButton);
-        ui::drawText(textBuf, label, rect.x + seg / 2 - 4, rect.y + seg / 2 - 8, 0.5f, ui::kColorText);
-        if (touch.heldIn(rect)) mask |= bit;
-    }
-
-    float clusterX = 210, clusterY = 90;
-    const float actionSize = 52;
-    ui::Rect bBtn { clusterX, clusterY + actionSize * 0.6f, actionSize, actionSize };
-    ui::Rect aBtn { clusterX + actionSize, clusterY, actionSize, actionSize };
-    ui::drawRect(bBtn, touch.heldIn(bBtn) ? ui::kColorButtonHeld : ui::kColorButton);
-    ui::drawText(textBuf, "B", bBtn.x + actionSize / 2 - 4, bBtn.y + actionSize / 2 - 8, 0.5f, ui::kColorText);
-    if (touch.heldIn(bBtn)) mask |= FINLINK_KEY_B;
-    ui::drawRect(aBtn, touch.heldIn(aBtn) ? ui::kColorButtonHeld : ui::kColorButton);
-    ui::drawText(textBuf, "A", aBtn.x + actionSize / 2 - 4, aBtn.y + actionSize / 2 - 8, 0.5f, ui::kColorText);
-    if (touch.heldIn(aBtn)) mask |= FINLINK_KEY_A;
-
-    return mask;
-}
-
 } // namespace
 
 int main(int argc, char *argv[]) {
@@ -333,6 +302,10 @@ int main(int argc, char *argv[]) {
     gfxInitDefault();
     gfxSet3D(false);
 
+    // If this fails, every network call below silently does nothing --
+    // there's no separate error path for that here, but it shows up
+    // directly as discovery::localIpString() reporting no IP on the Menu
+    // screen (gethostid() needs a working soc service too).
     u32 *socBuf = static_cast<u32 *>(memalign(0x1000, kSocBufferSize));
     if (socBuf) {
         socInit(socBuf, kSocBufferSize);
@@ -400,19 +373,15 @@ int main(int argc, char *argv[]) {
         C2D_TargetClear(bottomTarget, ui::kColorBg);
         C2D_SceneBegin(bottomTarget);
 
-        uint16_t touchMask = 0;
         if (connected) {
-            if (prefs.onScreenControlsEnabled) {
-                touchMask = drawPlayerControls(textBuf, touch);
-            } else {
-                ui::drawText(textBuf, "Verbunden - physische Tasten aktiv", 8, 100, 0.45f, ui::kColorTextDim);
-            }
+            ui::drawText(textBuf, "Verbunden", 8, 90, 0.55f, ui::kColorText);
+            ui::drawText(textBuf, "Physische Tasten sind aktiv.", 8, 120, 0.42f, ui::kColorTextDim);
             ui::Rect disconnectRect { 8, 206, 304, 26 };
             if (ui::button(textBuf, touch, disconnectRect, "Trennen")) {
                 session.disconnect();
                 connected = false;
             }
-            session.sendInput(touchMask | physicalMask);
+            session.sendInput(physicalMask);
         } else if (screenState == BottomScreenState::MENU) {
             drawMenuScreen(textBuf, touch, &menu, &screenState, &session, &videoTex, &audio, &connected,
                            &connectedHost);

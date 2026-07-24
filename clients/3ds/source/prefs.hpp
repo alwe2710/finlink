@@ -1,16 +1,16 @@
 #pragma once
 
 // Settings, mirroring clients/switch/source/prefs.hpp minus key bindings
-// (see gba_buttons.hpp for why: the 3DS's physical buttons already match
-// the GBA's layout, so there's nothing to remap). Persisted as a flat
+// and the on-screen-controls toggle (see gba_buttons.hpp resp. main.cpp:
+// the 3DS's physical buttons already match the GBA's layout and its
+// bottom screen is fully occupied by Menu/Settings/status instead of a
+// touch overlay, so neither concept applies here). Persisted as a flat
 // key=value text file on the SD card.
 class Prefs {
   public:
     Prefs();
 
     void save();
-
-    bool onScreenControlsEnabled = true;
 
     // true = bilinear filtering (smooth upscale), false = nearest-neighbor
     // (crisp/pixelated upscale, the default) -- same rationale as the
