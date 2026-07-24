@@ -1,0 +1,239 @@
+#include "player_activity.hpp"
+
+#include <chrono>
+#include <cstring>
+#include <malloc.h>
+
+#include "frame_poller.hpp"
+#include "gba_buttons.hpp"
+
+namespace {
+constexpr float kExitHoldSeconds = 0.6f;
+}
+
+PlayerActivity::PlayerActivity(std::string host, int port) : host(std::move(host)), port(port) {
+}
+
+PlayerActivity::~PlayerActivity() {
+    // Must join the session thread (which disconnect() does) before this
+    // object -- and everything its callbacks capture by `this` -- goes
+    // away, or a callback firing mid-teardown would use freed memory.
+    session.disconnect();
+    closeAudio();
+}
+
+brls::View *PlayerActivity::createContentView() {
+    auto *root = new brls::Box();
+    root->setWidthPercentage(100);
+    root->setHeightPercentage(100);
+
+    videoView = new VideoView();
+    videoView->setBilinearFilter(prefs.bilinearVideoFilter);
+    videoView->setOnScreenControlsEnabled(prefs.onScreenControlsEnabled);
+    root->addView(videoView);
+
+    statusLabel = new brls::Label();
+    statusLabel->setText("Verbinde...");
+    statusLabel->setTextColor(nvgRGB(255, 255, 255));
+    statusLabel->detach();
+    statusLabel->setWidth(400);
+    root->addView(statusLabel);
+    statusLabel->setDetachedPosition(16, 16);
+
+    auto *exitHint = new brls::Label();
+    exitHint->setText("ZL+ZR halten zum Beenden");
+    exitHint->setTextColor(nvgRGBA(255, 255, 255, 160));
+    exitHint->setFontSize(14);
+    exitHint->detach();
+    exitHint->setWidth(300);
+    root->addView(exitHint);
+    // Fixed offset below statusLabel rather than anchored to the root's
+    // height: layout hasn't run yet at construction time, so getHeight()
+    // would still read 0 here.
+    exitHint->setDetachedPosition(16, 48);
+
+    auto *poller = new FramePoller([this]() { onFrameTick(); });
+    root->addView(poller);
+
+    session.connect(host, port,
+        GbaSession::Listener {
+            .onConnected =
+                [this]() {
+                    brls::sync([this]() {
+                        connected = true;
+                        statusLabel->setVisibility(brls::Visibility::GONE);
+                    });
+                },
+            .onVideoFrame =
+                [this](uint32_t width, uint32_t height, std::vector<uint8_t> rgb565) {
+                    if (videoView) {
+                        videoView->setFrame(width, height, rgb565);
+                    }
+                },
+            .onAudioFrame =
+                [this](uint32_t sampleRate, uint8_t channels, std::vector<int16_t> pcm) {
+                    playAudio(sampleRate, channels, std::move(pcm));
+                },
+            .onDisconnected =
+                [this](std::string reason) {
+                    brls::sync([this, reason]() {
+                        bool wasConnected = connected;
+                        connected = false;
+                        if (wasConnected) {
+                            showDisconnectDialog(reason);
+                        } else {
+                            statusLabel->setVisibility(brls::Visibility::VISIBLE);
+                            statusLabel->setText("Fehler: " + reason);
+                        }
+                    });
+                },
+        });
+
+    return root;
+}
+
+void PlayerActivity::showDisconnectDialog(const std::string &reason) {
+    auto *dialog = new brls::Dialog("Verbindung verloren\n" + reason);
+    dialog->setCancelable(false);
+    dialog->addButton("OK", [this]() { brls::Application::popActivity(); });
+    dialog->open();
+}
+
+void PlayerActivity::sendCombinedInput() {
+    uint16_t touchMask = videoView ? videoView->getTouchMask() : 0;
+    session.sendInput(touchMask | physicalMask);
+}
+
+void PlayerActivity::onFrameTick() {
+    if (!connected) {
+        return;
+    }
+
+    brls::ControllerState state {};
+    brls::Application::getPlatform()->getInputManager()->updateUnifiedControllerState(&state);
+
+    uint16_t newPhysicalMask = 0;
+    for (const auto &button : GBA_BUTTONS) {
+        int bound = prefs.keyBinding(button.prefKey);
+        int controller = bound == Prefs::kNoOverride ? static_cast<int>(button.defaultController) : bound;
+        if (controller == Prefs::kExplicitlyUnbound) {
+            continue;
+        }
+        if (controller >= 0 && controller < brls::_BUTTON_MAX && state.buttons[controller]) {
+            newPhysicalMask |= button.bit;
+        }
+    }
+    physicalMask = newPhysicalMask;
+    sendCombinedInput();
+
+    // Hold-to-exit: ZL+ZR (the triggers) -- see header comment for why
+    // this replaces Android's system back button/gesture here.
+    static auto lastTick = std::chrono::steady_clock::now();
+    auto now = std::chrono::steady_clock::now();
+    float dt = std::chrono::duration<float>(now - lastTick).count();
+    lastTick = now;
+
+    if (state.buttons[brls::BUTTON_LT] && state.buttons[brls::BUTTON_RT]) {
+        exitHoldSeconds += dt;
+        if (exitHoldSeconds >= kExitHoldSeconds) {
+            brls::Application::popActivity();
+        }
+    } else {
+        exitHoldSeconds = 0.0f;
+    }
+}
+
+void PlayerActivity::reclaimAudioBuffers() {
+    for (;;) {
+        AudioOutBuffer *released = nullptr;
+        u32 count = 0;
+        if (R_FAILED(audoutGetReleasedAudioOutBuffer(&released, &count)) || count == 0 || released == nullptr) {
+            break;
+        }
+        free(released->buffer);
+        delete released;
+    }
+}
+
+void PlayerActivity::playAudio(uint32_t sampleRate, uint8_t channels, std::vector<int16_t> pcm) {
+    if (sampleRate == 0 || channels == 0 || pcm.empty()) {
+        return;
+    }
+
+    if (!audioOpen) {
+        if (R_FAILED(audoutInitialize()) || R_FAILED(audoutStartAudioOut())) {
+            return;
+        }
+        audioOpen = true;
+    }
+
+    reclaimAudioBuffers();
+
+    // The device is fixed at 48000Hz/stereo/s16 (audoutGetSampleRate() /
+    // audoutGetChannelCount()) -- remix to stereo and linearly resample if
+    // the server's format doesn't already match.
+    size_t frames = pcm.size() / channels;
+    if (frames == 0) {
+        return;
+    }
+
+    std::vector<int16_t> stereo(frames * 2);
+    for (size_t i = 0; i < frames; i++) {
+        int16_t l = pcm[i * channels];
+        int16_t r = channels >= 2 ? pcm[i * channels + 1] : l;
+        stereo[i * 2] = l;
+        stereo[i * 2 + 1] = r;
+    }
+
+    std::vector<int16_t> resampled;
+    if (sampleRate != 48000) {
+        size_t outFrames = static_cast<size_t>(frames) * 48000 / sampleRate;
+        resampled.resize(outFrames * 2);
+        for (size_t i = 0; i < outFrames; i++) {
+            double srcPos = static_cast<double>(i) * sampleRate / 48000.0;
+            size_t i0 = static_cast<size_t>(srcPos);
+            size_t i1 = std::min(i0 + 1, frames - 1);
+            double frac = srcPos - static_cast<double>(i0);
+            for (int c = 0; c < 2; c++) {
+                double v = stereo[i0 * 2 + c] * (1.0 - frac) + stereo[i1 * 2 + c] * frac;
+                resampled[i * 2 + c] = static_cast<int16_t>(v);
+            }
+        }
+    } else {
+        resampled = std::move(stereo);
+    }
+
+    if (resampled.empty()) {
+        return;
+    }
+
+    size_t dataSize = resampled.size() * sizeof(int16_t);
+    size_t bufferSize = (dataSize + 0xFFF) & ~static_cast<size_t>(0xFFF);
+
+    void *mem = memalign(0x1000, bufferSize);
+    if (!mem) {
+        return;
+    }
+    memcpy(mem, resampled.data(), dataSize);
+
+    auto *buf = new AudioOutBuffer();
+    memset(buf, 0, sizeof(*buf));
+    buf->buffer = mem;
+    buf->buffer_size = bufferSize;
+    buf->data_size = dataSize;
+
+    if (R_FAILED(audoutAppendAudioOutBuffer(buf))) {
+        free(mem);
+        delete buf;
+    }
+}
+
+void PlayerActivity::closeAudio() {
+    if (!audioOpen) {
+        return;
+    }
+    audoutStopAudioOut();
+    reclaimAudioBuffers();
+    audoutExit();
+    audioOpen = false;
+}
